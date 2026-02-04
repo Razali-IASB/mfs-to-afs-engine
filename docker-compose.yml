@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  # MongoDB Primary
+  mongodb-primary:
+    image: mongo:7.0
+    container_name: afs-mongodb-primary
+    command: mongod --replSet rs0 --bind_ip_all
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_primary_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: afs_secure_pass_2026
+      MONGO_INITDB_DATABASE: afs_db
+    networks:
+      - afs-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # MongoDB Secondary (for replica set)
+  mongodb-secondary:
+    image: mongo:7.0
+    container_name: afs-mongodb-secondary
+    command: mongod --replSet rs0 --bind_ip_all
+    volumes:
+      - mongodb_secondary_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: afs_secure_pass_2026
+    networks:
+      - afs-network
+    depends_on:
+      - mongodb-primary
+    restart: unless-stopped
+
+  # MongoDB Replica Set Initializer
+  mongo-setup:
+    image: mongo:7.0
+    container_name: mongo-setup
+    networks:
+      - afs-network
+    depends_on:
+      mongodb-primary:
+        condition: service_healthy
+    entrypoint: >
+      bash -c "
+        sleep 10 &&
+        mongosh --host mongodb-primary:27017 -u admin -p afs_secure_pass_2026 --authenticationDatabase admin --eval '
+          rs.initiate({
+            _id: \"rs0\",
+            members: [
+              { _id: 0, host: \"mongodb-primary:27017\", priority: 2 },
+              { _id: 1, host: \"mongodb-secondary:27017\", priority: 1 }
+            ]
+          })
+        ' &&
+        echo \"Replica set initialized successfully\"
+      "
+
+  # AFS Engine (Go Application)
+  afs-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: afs-engine
+    environment:
+      # MongoDB
+      MONGO_URI: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/afs_db?replicaSet=rs0&authSource=admin
+      MONGO_DATABASE: afs_db
+      
+      # API
+      API_ENDPOINT: http://api-receiver:3001/api/schedules
+      API_TIMEOUT: 30s
+      RETRY_ATTEMPTS: 3
+      RETRY_DELAY_MS: 60s
+      
+      # Scheduler
+      CRON_SCHEDULE: "0 0 * * *"
+      
+      # Processing
+      BATCH_SIZE: 100
+      MAX_WORKERS: 4
+      
+      # Storage
+      AFS_TTL_DAYS: 7
+      ENABLE_XML_ARCHIVE: "true"
+      ARCHIVE_PATH: /app/archive
+      
+      # Logging
+      LOG_LEVEL: info
+      LOG_PATH: /app/logs
+      
+      # App
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./logs:/app/logs
+      - ./archive:/app/archive
+    networks:
+      - afs-network
+    depends_on:
+      mongo-setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # Mock API Receiver (Simulates downstream system)
+  api-receiver:
+    build:
+      context: ./mock-api
+      dockerfile: Dockerfile
+    container_name: api-receiver
+    environment:
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    networks:
+      - afs-network
+    restart: unless-stopped
+
+  # MongoDB Web UI (Optional - for monitoring)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: afs-mongo-express
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: afs_secure_pass_2026
+      ME_CONFIG_MONGODB_URL: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    ports:
+      - "8081:8081"
+    networks:
+      - afs-network
+    depends_on:
+      - mongodb-primary
+    restart: unless-stopped
+
+networks:
+  afs-network:
+    driver: bridge
+
+volumes:
+  mongodb_primary_data:
+  mongodb_secondary_data:
