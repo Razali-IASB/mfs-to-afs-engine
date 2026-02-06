@@ -32,19 +32,19 @@ type MasterFlight struct {
 
 // Station represents a flight leg
 type Station struct {
-	DepartureStation         string    `bson:"DepartureStation"`
+	DepartureStation         string    `bson:"departureStation"`
 	PassengerTerminalDep     string    `bson:"passengerTerminalDep"`
 	STD                      string    `bson:"std"`
 	UTCLocalTimeVariationDep string    `bson:"utcLocalTimeVariationDep"`
-	CD                       int       `bson:"cd"` // Day change departure
-	ArrivalStation           string    `bson:"ArrivalStation"`
+	CD                       int       `bson:"cd"`
+	ArrivalStation           string    `bson:"arrivalStation"`
 	PassengerTerminalArr     string    `bson:"passengerTerminalArr"`
 	STA                      string    `bson:"sta"`
 	CA                       int       `bson:"ca"` // Day change arrival
 	UTCLocalTimeVariationArr string    `bson:"utcLocalTimeVariationArr"`
 	IATASubTypeCode          string    `bson:"iataSubTypeCode"`
 	AircraftOwner            string    `bson:"aircraftOwner"`
-	TailNo                   string    `bson:"TailNo"`
+	TailNo                   string    `bson:"tailNo"`
 	AircraftConfiguration    string    `bson:"aircraftConfiguration"`
 	OnwardFlight             string    `bson:"onwardFlight"`
 	CreatedAt                time.Time `bson:"createdAt"`
@@ -74,7 +74,7 @@ type Timestamp struct {
 
 // ActiveFlight represents the Active Flight Schedule record
 type ActiveFlight struct {
-	ID                       string             `bson:"_id"` // Deterministic composite key
+	ID                       primitive.ObjectID `bson:"_id"`
 	FlightNo                 string             `bson:"flightNo"`
 	FlightOwner              string             `bson:"flightOwner"`
 	OperationalSuffix        string             `bson:"operationalSuffix"`
@@ -99,7 +99,7 @@ type ActiveFlight struct {
 	SourceMFSID              primitive.ObjectID `bson:"sourceMFSId"`
 	SeasonID                 string             `bson:"seasonId"`
 	ItineraryVarID           int                `bson:"itineraryVarId"`
-	DeliveryStatus           string             `bson:"deliveryStatus"` // PENDING, SENT, FAILED
+	DeliveryStatus           string             `bson:"deliveryStatus"`
 	DeliveryAttempts         int                `bson:"deliveryAttempts"`
 	DeliveredAt              *time.Time         `bson:"deliveredAt,omitempty"`
 	SentXMLBatchID           string             `bson:"sentXMLBatchId,omitempty"`

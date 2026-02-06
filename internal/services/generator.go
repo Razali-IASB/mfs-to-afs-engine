@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mh-airlines/afs-engine/internal/config"
@@ -10,7 +11,7 @@ import (
 	"github.com/mh-airlines/afs-engine/internal/utils"
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -26,6 +27,10 @@ func NewAFSGenerator(db *Database, cfg *config.Config) *AFSGenerator {
 		db:     db,
 		config: cfg,
 	}
+}
+
+func formatTimeToHHMM(timeStr string) string {
+	return strings.ReplaceAll(timeStr, ":", "")
 }
 
 // GenerateAFS generates AFS records for target date
@@ -93,6 +98,7 @@ func (g *AFSGenerator) queryValidMFS(ctx context.Context, targetDate time.Time) 
 	}
 	defer cursor.Close(ctx)
 
+	// Decode directly into MasterFlight structs - BSON tags now match MongoDB schema
 	var mfsRecords []models.MasterFlight
 	if err := cursor.All(ctx, &mfsRecords); err != nil {
 		return nil, err
@@ -114,19 +120,13 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 	var afsRecords []models.ActiveFlight
 
 	for i, station := range mfs.Stations {
-		afsID := utils.GenerateAFSID(
-			mfs.FlightNo,
-			flightDate,
-			station.DepartureStation,
-			station.ArrivalStation,
-			i,
-		)
+		afsObjectID := primitive.NewObjectID()
 
 		expiryDate := utils.CalculateExpiryDate(flightDate, g.config.Storage.AFSTTLDays)
 		now := time.Now()
 
 		afs := models.ActiveFlight{
-			ID:                       afsID,
+			ID:                       afsObjectID,
 			FlightNo:                 mfs.FlightNo,
 			FlightOwner:              mfs.FlightOwner,
 			OperationalSuffix:        mfs.OperationalSuffix,
@@ -169,8 +169,41 @@ func (g *AFSGenerator) upsertAFS(ctx context.Context, afs models.ActiveFlight) e
 	collection := g.db.GetCollection("active_flights")
 
 	filter := bson.M{"_id": afs.ID}
+	
+	stdFormatted := formatTimeToHHMM(afs.STD)
+	staFormatted := formatTimeToHHMM(afs.STA)
+	
 	update := bson.M{
-		"$set": afs,
+		"$set": bson.M{
+			"flightNo":                 afs.FlightNo,
+			"flightOwner":              afs.FlightOwner,
+			"operationalSuffix":        afs.OperationalSuffix,
+			"flightDate":               afs.FlightDate,
+			"legSequence":              afs.LegSequence,
+			"departureStation":         afs.DepartureStation,
+			"arrivalStation":           afs.ArrivalStation,
+			"passengerTerminalDep":     afs.PassengerTerminalDep,
+			"passengerTerminalArr":     afs.PassengerTerminalArr,
+			"std":                      stdFormatted,
+			"sta":                      staFormatted,
+			"utcLocalTimeVariationDep": afs.UTCLocalTimeVariationDep,
+			"utcLocalTimeVariationArr": afs.UTCLocalTimeVariationArr,
+			"dayChangeDeparture":       afs.DayChangeDeparture,
+			"dayChangeArrival":         afs.DayChangeArrival,
+			"aircraftType":             afs.AircraftType,
+			"aircraftOwner":            afs.AircraftOwner,
+			"tailNo":                   afs.TailNo,
+			"aircraftConfiguration":    afs.AircraftConfiguration,
+			"serviceType":              afs.ServiceType,
+			"onwardFlight":             afs.OnwardFlight,
+			"sourceMFSId":              afs.SourceMFSID,
+			"seasonId":                 afs.SeasonID,
+			"itineraryVarId":           afs.ItineraryVarID,
+			"deliveryStatus":           afs.DeliveryStatus,
+			"deliveryAttempts":         afs.DeliveryAttempts,
+			"expiresAt":                afs.ExpiresAt,
+			"updatedAt":                time.Now(),
+		},
 		"$setOnInsert": bson.M{
 			"createdAt": time.Now(),
 		},
@@ -205,7 +238,7 @@ func (g *AFSGenerator) GetAFSForDelivery(ctx context.Context, flightDate time.Ti
 }
 
 // UpdateDeliveryStatus updates delivery status for AFS records
-func (g *AFSGenerator) UpdateDeliveryStatus(ctx context.Context, afsIDs []string, status string, additionalData bson.M) error {
+func (g *AFSGenerator) UpdateDeliveryStatus(ctx context.Context, afsIDs []primitive.ObjectID, status string, additionalData bson.M) error {
 	collection := g.db.GetCollection("active_flights")
 
 	filter := bson.M{"_id": bson.M{"$in": afsIDs}}

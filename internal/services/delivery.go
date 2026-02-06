@@ -17,6 +17,7 @@ import (
 	"github.com/mh-airlines/afs-engine/internal/utils"
 	log "github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // APIDelivery handles XML delivery to downstream API
@@ -64,7 +65,7 @@ func (d *APIDelivery) SendBatch(ctx context.Context, afsRecords []models.ActiveF
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
 
-		// Update as failed
+		// Update as failed - FIXED: extractIDs now returns []primitive.ObjectID
 		afsIDs := extractIDs(afsRecords)
 		_ = d.generator.UpdateDeliveryStatus(ctx, afsIDs, "FAILED", bson.M{
 			"lastErrorMessage": err.Error(),
@@ -80,7 +81,6 @@ func (d *APIDelivery) SendBatch(ctx context.Context, afsRecords []models.ActiveF
 	result.AcceptedRecords = apiResponse.Accepted
 	result.RejectedRecords = apiResponse.Rejected
 
-	// Update delivery status
 	afsIDs := extractIDs(afsRecords)
 	now := time.Now()
 
@@ -307,8 +307,8 @@ func (d *APIDelivery) ProcessAllPending(ctx context.Context, flightDate time.Tim
 
 // Helper functions
 
-func extractIDs(records []models.ActiveFlight) []string {
-	ids := make([]string, len(records))
+func extractIDs(records []models.ActiveFlight) []primitive.ObjectID {
+	ids := make([]primitive.ObjectID, len(records))
 	for i, record := range records {
 		ids[i] = record.ID
 	}

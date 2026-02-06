@@ -100,10 +100,10 @@ func (d *Database) setupIndexes(ctx context.Context) error {
 		{
 			Keys: bson.D{{Key: "deliveryStatus", Value: 1}},
 		},
-		{
-			Keys:    bson.D{{Key: "_id", Value: 1}},
-			Options: options.Index().SetUnique(true),
-		},
+		// {
+		// 	Keys:    bson.D{{Key: "_id", Value: 1}},
+		// 	Options: options.Index().SetUnique(true),
+		// },
 		{
 			Keys:    bson.D{{Key: "expiresAt", Value: 1}},
 			Options: options.Index().SetExpireAfterSeconds(0), // TTL index

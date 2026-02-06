@@ -126,7 +126,7 @@ func (t *XMLTransformer) TransformToXML(afsRecords []models.ActiveFlight, batchI
 // transformFlight transforms single AFS record to XML flight element
 func (t *XMLTransformer) transformFlight(afs models.ActiveFlight) FlightXML {
 	return FlightXML{
-		ID: afs.ID,
+		ID: afs.ID.Hex(),
 		FlightIdentification: FlightIdentification{
 			FlightNumber:      afs.FlightNo,
 			FlightOwner:       afs.FlightOwner,
@@ -172,7 +172,7 @@ func (t *XMLTransformer) transformFlight(afs models.ActiveFlight) FlightXML {
 func (t *XMLTransformer) CreateManifest(batchID string, afsRecords []models.ActiveFlight, apiResponse *models.APIResponse) map[string]interface{} {
 	flightIDs := make([]string, len(afsRecords))
 	for i, afs := range afsRecords {
-		flightIDs[i] = afs.ID
+		flightIDs[i] = afs.ID.Hex() // FIXED: Convert ObjectID to string using .Hex()
 	}
 
 	manifest := map[string]interface{}{
