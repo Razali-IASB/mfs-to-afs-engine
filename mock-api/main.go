@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -24,16 +25,29 @@ func main() {
 		port = "3001"
 	}
 
-	http.HandleFunc("/api/schedules", handleSchedules)
+	// Create downloads directory if it doesn't exist
+	downloadsDir := os.Getenv("DOWNLOADS_DIR")
+	if downloadsDir == "" {
+		downloadsDir = "./downloads"
+	}
+	
+	if err := os.MkdirAll(downloadsDir, 0755); err != nil {
+		log.Fatalf("Failed to create downloads directory: %v", err)
+	}
+
+	http.HandleFunc("/api/schedules", func(w http.ResponseWriter, r *http.Request) {
+		handleSchedules(w, r, downloadsDir)
+	})
 	http.HandleFunc("/health", handleHealth)
 
 	log.Printf("Mock API Receiver starting on port %s...\n", port)
+	log.Printf("XML files will be saved to: %s\n", downloadsDir)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func handleSchedules(w http.ResponseWriter, r *http.Request) {
+func handleSchedules(w http.ResponseWriter, r *http.Request, downloadsDir string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -49,18 +63,34 @@ func handleSchedules(w http.ResponseWriter, r *http.Request) {
 
 	xmlContent := string(body)
 
-	// Count flights in XML (simple approach)
-	flightCount := strings.Count(xmlContent, "<Flight ")
+	// Generate filename with timestamp
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("fidasm_%s.xml", timestamp)
+	filepath := filepath.Join(downloadsDir, filename)
+
+	// Save XML to file
+	err = os.WriteFile(filepath, body, 0644)
+	if err != nil {
+		log.Printf("ERROR: Failed to save XML file: %v\n", err)
+		http.Error(w, "Failed to save XML file", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✓ XML file saved: %s\n", filepath)
+
+
+	flightCount := strings.Count(xmlContent, "<PayLoad>")
+	if flightCount == 0 {
+		flightCount = strings.Count(xmlContent, "<Flight ")
+	}
 
 	log.Printf("Received batch with %d flights\n", flightCount)
 	log.Printf("XML size: %d bytes\n", len(xmlContent))
 
-	// Simulate processing time
 	time.Sleep(100 * time.Millisecond)
 
-	// Simulate 100% success (in production, may have failures)
 	response := Response{
-		Message:  "Batch processed successfully",
+		Message:  fmt.Sprintf("Batch processed successfully. File saved as %s", filename),
 		Accepted: flightCount,
 		Rejected: 0,
 		Errors:   []string{},
