@@ -186,11 +186,25 @@ func (g *AFSGenerator) findMatchingCodeshares(codeshares []models.Codeshare, sec
 	return matchingFlights
 }
 
-// expandMFSToAFS expands MFS record into AFS records (one per leg)
+// expandMFSToAFS expands MFS record into AFS records (one per leg that touches homeStation)
 func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.Time) []models.ActiveFlight {
 	var afsRecords []models.ActiveFlight
 
 	for i, station := range mfs.Stations {
+		// Only create AFS if this leg touches the homeStation
+		// Either departing from homeStation OR arriving at homeStation
+		if mfs.HomeStation == "" || 
+		   (station.DepartureStation != mfs.HomeStation && station.ArrivalStation != mfs.HomeStation) {
+			log.WithFields(log.Fields{
+				"flightNo":    mfs.FlightNo,
+				"homeStation": mfs.HomeStation,
+				"departure":   station.DepartureStation,
+				"arrival":     station.ArrivalStation,
+				"legSeq":      i + 1,
+			}).Debug("Skipping leg - does not touch homeStation")
+			continue
+		}
+
 		afsObjectID := primitive.NewObjectID()
 
 		expiryDate := utils.CalculateExpiryDate(flightDate, g.config.Storage.AFSTTLDays)
@@ -201,6 +215,14 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 		
 		// Find matching codeshare flights for this leg
 		codeshareFlights := g.findMatchingCodeshares(mfs.Codeshares, sector)
+
+		// Determine movement type based on homeStation
+		movementType := ""
+		if station.DepartureStation == mfs.HomeStation {
+			movementType = "DEPARTURE"
+		} else if station.ArrivalStation == mfs.HomeStation {
+			movementType = "ARRIVAL"
+		}
 
 		afs := models.ActiveFlight{
 			ID:                       afsObjectID,
@@ -226,6 +248,8 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			ServiceType:              mfs.IATAServiceType,
 			OnwardFlight:             station.OnwardFlight,
 			CodeshareFlights:         codeshareFlights,
+			HomeStation:              mfs.HomeStation,
+			MovementType:             movementType,
 			SourceMFSID:              mfs.ID,
 			SeasonID:                 mfs.SeasonID,
 			ItineraryVarID:           mfs.ItineraryVarID,
@@ -235,6 +259,15 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			CreatedAt:                now,
 			UpdatedAt:                now,
 		}
+
+		log.WithFields(log.Fields{
+			"flightNo":     mfs.FlightNo,
+			"homeStation":  mfs.HomeStation,
+			"departure":    station.DepartureStation,
+			"arrival":      station.ArrivalStation,
+			"movementType": movementType,
+			"legSeq":       i + 1,
+		}).Debug("Created AFS record for homeStation leg")
 
 		afsRecords = append(afsRecords, afs)
 	}
@@ -275,6 +308,8 @@ func (g *AFSGenerator) upsertAFS(ctx context.Context, afs models.ActiveFlight) e
 			"serviceType":              afs.ServiceType,
 			"onwardFlight":             afs.OnwardFlight,
 			"codeshareFlights":         afs.CodeshareFlights,
+			"homeStation":              afs.HomeStation,
+			"movementType":             afs.MovementType,
 			"sourceMFSId":              afs.SourceMFSID,
 			"seasonId":                 afs.SeasonID,
 			"itineraryVarId":           afs.ItineraryVarID,

@@ -27,6 +27,7 @@ type MasterFlight struct {
 	AdditionalFields  AdditionalFields   `bson:"additionalFields"`
 	MessageType       string             `bson:"MessageType"`
 	IsAdhoc           bool               `bson:"isAdhoc"`
+	HomeStation       string             `bson:"homeStation"`
 	SourceTracking    SourceTracking     `bson:"sourceTracking"`
 	Codeshares        []Codeshare        `bson:"-"` // Not stored in MFS, populated from codeshares collection
 }
@@ -116,7 +117,9 @@ type ActiveFlight struct {
 	AircraftConfiguration    string             `bson:"aircraftConfiguration"`
 	ServiceType              string             `bson:"serviceType"`
 	OnwardFlight             string             `bson:"onwardFlight"`
-	CodeshareFlights         []string           `bson:"codeshareFlights,omitempty"` // NEW: Array of codeshare flight numbers
+	CodeshareFlights         []string           `bson:"codeshareFlights,omitempty"` // Array of codeshare flight numbers
+	HomeStation              string             `bson:"homeStation"`                // The home station this AFS record belongs to
+	MovementType             string             `bson:"movementType"`               // "ARRIVAL" or "DEPARTURE" relative to homeStation
 	SourceMFSID              primitive.ObjectID `bson:"sourceMFSId"`
 	SeasonID                 string             `bson:"seasonId"`
 	ItineraryVarID           int                `bson:"itineraryVarId"`

@@ -153,25 +153,48 @@ func (t *XMLTransformer) transformFlight(afs models.ActiveFlight) PayLoadXML {
 		return formatted
 	}
 
+	// Determine Leg value based on movementType
+	legValue := ""
+	switch afs.MovementType {
+	case "DEPARTURE":
+		legValue = "D"
+	case "ARRIVAL":
+		legValue = "A"
+	default:
+		// Fallback to legacy logic if movementType is not set
+		legValue = string(afs.LegSequence + 64) // Convert 1->A, 2->B, etc.
+	}
+
 	// Helper to format flight date/time
 	// flightDateTime := utils.FormatDate(afs.FlightDate) + afs.STD
 	stad := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STD)
 	std1 := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STD)
 	sta2 := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STA)
 
+	// Join codeshare flights with comma separator
+	codeshareFlights := ""
+	if len(afs.CodeshareFlights) > 0 {
+		for i, cs := range afs.CodeshareFlights {
+			if i > 0 {
+				codeshareFlights += ","
+			}
+			codeshareFlights += cs
+		}
+	}
+
 	return PayLoadXML{
 		Header:             "AFS",
 		ActionCode:         "REV", // Default action code, adjust based on your logic
 		AFSkey:             afs.ID.Hex(),
 		FlightNo:           afs.FlightNo,
-		Leg:                string(afs.LegSequence + 64), // Convert 1->A, 2->B, etc.
+		Leg:                legValue,
 		STAD:               stad,
 		OfficialFlightDate: stad,
 		AircraftType:       afs.AircraftType,
 		ServiceClass:       "", // Map from your model if available
 		AircraftOperator:   afs.FlightOwner,
 		ServiceTypeCode:    afs.ServiceType,
-		CodeShareFlight:    "",
+		CodeShareFlight:    codeshareFlights,
 		FlightMode:         "0",
 		ModeSequence:       "0",
 		CategoryCode:       "I", // Default to International, adjust based on your logic
