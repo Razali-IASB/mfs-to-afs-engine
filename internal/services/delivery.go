@@ -20,16 +20,16 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// APIDelivery handles XML delivery to downstream API
+// APIDelivery handles JSON delivery to downstream API
 type APIDelivery struct {
 	config      *config.Config
 	generator   *AFSGenerator
-	transformer *XMLTransformer
+	transformer *JSONTransformer
 	httpClient  *http.Client
 }
 
 // NewAPIDelivery creates a new API delivery service
-func NewAPIDelivery(cfg *config.Config, gen *AFSGenerator, trans *XMLTransformer) *APIDelivery {
+func NewAPIDelivery(cfg *config.Config, gen *AFSGenerator, trans *JSONTransformer) *APIDelivery {
 	return &APIDelivery{
 		config:      cfg,
 		generator:   gen,
@@ -53,19 +53,19 @@ func (d *APIDelivery) SendBatch(ctx context.Context, afsRecords []models.ActiveF
 		"records": len(afsRecords),
 	}).Info("Sending batch to API")
 
-	// Transform to XML
-	xmlPayload, err := d.transformer.TransformToXML(afsRecords, batchID)
+	// Transform to JSON
+	jsonPayload, err := d.transformer.TransformToJSON(afsRecords, batchID)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("XML transformation failed: %v", err))
+		result.Errors = append(result.Errors, fmt.Sprintf("JSON transformation failed: %v", err))
 		return result, err
 	}
 
 	// Send with retry logic
-	apiResponse, err := d.sendWithRetry(ctx, xmlPayload, batchID)
+	apiResponse, err := d.sendWithRetry(ctx, jsonPayload, batchID)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
 
-		// Update as failed - FIXED: extractIDs now returns []primitive.ObjectID
+		// Update as failed
 		afsIDs := extractIDs(afsRecords)
 		_ = d.generator.UpdateDeliveryStatus(ctx, afsIDs, "FAILED", bson.M{
 			"lastErrorMessage": err.Error(),
@@ -85,9 +85,9 @@ func (d *APIDelivery) SendBatch(ctx context.Context, afsRecords []models.ActiveF
 	now := time.Now()
 
 	updateData := bson.M{
-		"deliveredAt":    now,
-		"sentXMLBatchId": batchID,
-		"apiResponse":    apiResponse,
+		"deliveredAt":     now,
+		"sentJSONBatchId": batchID,
+		"apiResponse":     apiResponse,
 	}
 
 	if err := d.generator.UpdateDeliveryStatus(ctx, afsIDs, "SENT", updateData); err != nil {
@@ -100,18 +100,18 @@ func (d *APIDelivery) SendBatch(ctx context.Context, afsRecords []models.ActiveF
 		"rejected": result.RejectedRecords,
 	}).Info("Batch delivered successfully")
 
-	// Archive XML if enabled
+	// Archive JSON if enabled
 	if d.config.Storage.EnableXMLArchive {
-		if err := d.archiveXML(batchID, xmlPayload, result); err != nil {
-			log.WithError(err).Warn("Failed to archive XML")
+		if err := d.archiveJSON(batchID, jsonPayload, result); err != nil {
+			log.WithError(err).Warn("Failed to archive JSON")
 		}
 	}
 
 	return result, nil
 }
 
-// sendWithRetry sends XML with exponential backoff retry
-func (d *APIDelivery) sendWithRetry(ctx context.Context, xmlPayload, batchID string) (*models.APIResponse, error) {
+// sendWithRetry sends JSON with exponential backoff retry
+func (d *APIDelivery) sendWithRetry(ctx context.Context, jsonPayload, batchID string) (*models.APIResponse, error) {
 	var lastErr error
 
 	for attempt := 1; attempt <= d.config.API.RetryAttempts; attempt++ {
@@ -121,7 +121,7 @@ func (d *APIDelivery) sendWithRetry(ctx context.Context, xmlPayload, batchID str
 			"maxAttempts": d.config.API.RetryAttempts,
 		}).Info("Sending to API")
 
-		resp, err := d.sendRequest(ctx, xmlPayload)
+		resp, err := d.sendRequest(ctx, jsonPayload)
 		if err == nil {
 			return resp, nil
 		}
@@ -152,18 +152,18 @@ func (d *APIDelivery) sendWithRetry(ctx context.Context, xmlPayload, batchID str
 }
 
 // sendRequest sends HTTP POST request
-func (d *APIDelivery) sendRequest(ctx context.Context, xmlPayload string) (*models.APIResponse, error) {
+func (d *APIDelivery) sendRequest(ctx context.Context, jsonPayload string) (*models.APIResponse, error) {
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
 		d.config.API.Endpoint,
-		bytes.NewBufferString(xmlPayload),
+		bytes.NewBufferString(jsonPayload),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/xml")
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "AFS-Engine-Go/1.0")
 
 	resp, err := d.httpClient.Do(req)
@@ -211,8 +211,8 @@ func (d *APIDelivery) calculateBackoff(attempt int) time.Duration {
 	return time.Duration(math.Pow(2, float64(attempt-1))) * d.config.API.RetryDelay
 }
 
-// archiveXML archives XML and manifest to file system
-func (d *APIDelivery) archiveXML(batchID, xmlPayload string, result *models.DeliveryResult) error {
+// archiveJSON archives JSON and manifest to file system
+func (d *APIDelivery) archiveJSON(batchID, jsonPayload string, result *models.DeliveryResult) error {
 	now := time.Now()
 	archiveDir := filepath.Join(
 		d.config.Storage.ArchivePath,
@@ -225,10 +225,10 @@ func (d *APIDelivery) archiveXML(batchID, xmlPayload string, result *models.Deli
 		return fmt.Errorf("failed to create archive directory: %w", err)
 	}
 
-	// Save XML file
-	xmlPath := filepath.Join(archiveDir, fmt.Sprintf("%s.xml", batchID))
-	if err := os.WriteFile(xmlPath, []byte(xmlPayload), 0644); err != nil {
-		return fmt.Errorf("failed to write XML file: %w", err)
+	// Save JSON file
+	jsonPath := filepath.Join(archiveDir, fmt.Sprintf("%s.json", batchID))
+	if err := os.WriteFile(jsonPath, []byte(jsonPayload), 0644); err != nil {
+		return fmt.Errorf("failed to write JSON file: %w", err)
 	}
 
 	// Save manifest
