@@ -162,7 +162,21 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 	}
 
 	// Helper to format flight date/time
-	stad := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STD)
+	// STAD depends on homeStation:
+	// - If arrival at homeStation: use arrival date/time (STA)
+	// - If departure from homeStation: use departure date/time (STD)
+	var stad string
+	if afs.MovementType == "ARRIVAL" {
+		// Arrival at homeStation - use STA
+		stad = formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STA)
+	} else {
+		// Departure from homeStation - use STD
+		stad = formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STD)
+	}
+	
+	// officialFlightDate ALWAYS uses departure date/time (STD)
+	officialFlightDate := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STD)
+	
 	std1 := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STD)
 	sta2 := formatTimestamp(utils.FormatDate(afs.FlightDate), afs.STA)
 
@@ -172,22 +186,25 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 		codeshareFlights = afs.CodeshareFlights
 	}
 
+	// Use CategoryCode from AFS record, default to "I" if not set
+	categoryCode := afs.CategoryCode
+
 	return PayLoadJSON{
 		Header:             "AFS",
-		ActionCode:         "REV", // Default action code, adjust based on your logic
+		ActionCode:         "NEW",
 		AFSkey:             afs.ID.Hex(),
 		FlightNo:           afs.FlightNo,
 		Leg:                legValue,
 		STAD:               stad,
-		OfficialFlightDate: stad,
+		OfficialFlightDate: officialFlightDate,
 		AircraftType:       afs.AircraftType,
-		ServiceClass:       "", // Map from your model if available
+		ServiceClass:       null, // Need to find out how to fill up this field
 		AircraftOperator:   afs.FlightOwner,
 		ServiceTypeCode:    afs.ServiceType,
 		CodeShareFlight:    codeshareFlights,
 		FlightMode:         "0",
 		ModeSequence:       "0",
-		CategoryCode:       "I", // Default to International, adjust based on your logic
+		CategoryCode:       categoryCode,
 		Station1:           afs.DepartureStation,
 		Station2:           afs.ArrivalStation,
 		Station3:           "",
@@ -205,24 +222,24 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 		STA5:               "",
 		STA6:               "",
 		SpFIndicator:       "N",
-		SchOpenTimeC:       "", // Calculate based on STD - offset
-		SchCloseTimeC:      "", // Calculate based on STD - offset
-		SchOpenTimeL:       "", // Calculate based on STD - offset
-		SchCloseTimeL:      "", // Calculate based on STD - offset
-		SchBoardTimeL:      "", // Calculate based on STD - offset
-		SchFCTimeL:         "", // Calculate based on STD - offset
-		StandCode:          "",
-		LoungeCode:         "",
+		SchOpenTimeC:       null,
+		SchCloseTimeC:      null,
+		SchOpenTimeL:       null,
+		SchCloseTimeL:      null,
+		SchBoardTimeL:      null,
+		SchFCTimeL:         null,
+		StandCode:          null,
+		LoungeCode:         null
 		AcftRegnNo:         afs.TailNo,
-		Memo:               "",
+		Memo:               null,
 		TerminalID:         afs.PassengerTerminalDep,
 		SuffixDisp:         "N",
-		CheckInType:        "C",
-		IslandsAlloc:       "", // Map from your configuration
-		DeskAlloc:          "", // Map from your configuration
-		IslandStatus:       "",
-		ActIslandOpenTime:  "",
-		ActIslandCloseTime: "",
+		CheckInType:        "C", // Need to find out how to fill up this field
+		IslandsAlloc:       null,
+		DeskAlloc:          null,
+		IslandStatus:       null,
+		ActIslandOpenTime:  null,
+		ActIslandCloseTime: null,
 	}
 }
 

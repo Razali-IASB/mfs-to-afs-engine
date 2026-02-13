@@ -16,20 +16,80 @@ import (
 
 // AFSGenerator handles AFS generation from MFS
 type AFSGenerator struct {
-	db     *Database
-	config *config.Config
+	db            *Database
+	config        *config.Config
+	airportCache  map[string]*models.Airport
+	cacheLoadTime time.Time
 }
 
 // NewAFSGenerator creates a new AFS generator
 func NewAFSGenerator(db *Database, cfg *config.Config) *AFSGenerator {
 	return &AFSGenerator{
-		db:     db,
-		config: cfg,
+		db:           db,
+		config:       cfg,
+		airportCache: make(map[string]*models.Airport),
 	}
 }
 
 func formatTimeToHHMM(timeStr string) string {
 	return strings.ReplaceAll(timeStr, ":", "")
+}
+
+// loadAirportCache loads all airports from iata_airports collection into memory
+func (g *AFSGenerator) loadAirportCache(ctx context.Context) error {
+	// Reload cache every 24 hours or if empty
+	if len(g.airportCache) > 0 && time.Since(g.cacheLoadTime) < 24*time.Hour {
+		return nil
+	}
+
+	collection := g.db.GetCollection("iata_airports")
+	
+	cursor, err := collection.Find(ctx, bson.M{"isActive": true})
+	if err != nil {
+		return fmt.Errorf("failed to query airports: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var airports []models.Airport
+	if err := cursor.All(ctx, &airports); err != nil {
+		return fmt.Errorf("failed to decode airports: %w", err)
+	}
+
+	// Build cache indexed by IATA code
+	newCache := make(map[string]*models.Airport)
+	for i := range airports {
+		newCache[airports[i].IATAAirportCode] = &airports[i]
+	}
+
+	g.airportCache = newCache
+	g.cacheLoadTime = time.Now()
+
+	log.WithField("airportCount", len(g.airportCache)).Info("Airport cache loaded")
+	return nil
+}
+
+// determineCategoryCode determines if a flight is International (I) or Domestic (D)
+func (g *AFSGenerator) determineCategoryCode(depStation, arrStation string) string {
+	depAirport, depExists := g.airportCache[depStation]
+	arrAirport, arrExists := g.airportCache[arrStation]
+
+	// Default to International if airport info not found
+	if !depExists || !arrExists {
+		log.WithFields(log.Fields{
+			"departure": depStation,
+			"arrival":   arrStation,
+			"depFound":  depExists,
+			"arrFound":  arrExists,
+		}).Warn("Airport not found in cache, defaulting to International")
+		return "I"
+	}
+
+	// Compare country codes
+	if depAirport.CountryCode == arrAirport.CountryCode {
+		return "D" // Domestic - same country
+	}
+
+	return "I" // International - different countries
 }
 
 // GenerateAFS generates AFS records for target date
@@ -44,6 +104,11 @@ func (g *AFSGenerator) GenerateAFS(ctx context.Context, targetDate *time.Time) (
 	}
 
 	log.WithField("date", utils.FormatDate(flightDate)).Info("Starting AFS generation")
+
+	// Load airport cache before processing
+	if err := g.loadAirportCache(ctx); err != nil {
+		log.WithError(err).Warn("Failed to load airport cache, category codes may be inaccurate")
+	}
 
 	// Phase 1: Query valid MFS records
 	mfsRecords, err := g.queryValidMFS(ctx, flightDate)
@@ -224,6 +289,9 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			movementType = "ARRIVAL"
 		}
 
+		// Determine category code (International/Domestic)
+		categoryCode := g.determineCategoryCode(station.DepartureStation, station.ArrivalStation)
+
 		afs := models.ActiveFlight{
 			ID:                       afsObjectID,
 			FlightNo:                 mfs.FlightNo,
@@ -250,6 +318,7 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			CodeshareFlights:         codeshareFlights,
 			HomeStation:              mfs.HomeStation,
 			MovementType:             movementType,
+			CategoryCode:             categoryCode,
 			SourceMFSID:              mfs.ID,
 			SeasonID:                 mfs.SeasonID,
 			ItineraryVarID:           mfs.ItineraryVarID,
@@ -266,6 +335,7 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			"departure":    station.DepartureStation,
 			"arrival":      station.ArrivalStation,
 			"movementType": movementType,
+			"categoryCode": categoryCode,
 			"legSeq":       i + 1,
 		}).Debug("Created AFS record for homeStation leg")
 
@@ -310,6 +380,7 @@ func (g *AFSGenerator) upsertAFS(ctx context.Context, afs models.ActiveFlight) e
 			"codeshareFlights":         afs.CodeshareFlights,
 			"homeStation":              afs.HomeStation,
 			"movementType":             afs.MovementType,
+			"categoryCode":             afs.CategoryCode,
 			"sourceMFSId":              afs.SourceMFSID,
 			"seasonId":                 afs.SeasonID,
 			"itineraryVarId":           afs.ItineraryVarID,

@@ -120,6 +120,7 @@ type ActiveFlight struct {
 	CodeshareFlights         []string           `bson:"codeshareFlights,omitempty"` // Array of codeshare flight numbers
 	HomeStation              string             `bson:"homeStation"`                // The home station this AFS record belongs to
 	MovementType             string             `bson:"movementType"`               // "ARRIVAL" or "DEPARTURE" relative to homeStation
+	CategoryCode             string             `bson:"categoryCode"`               // "I" for International, "D" for Domestic
 	SourceMFSID              primitive.ObjectID `bson:"sourceMFSId"`
 	SeasonID                 string             `bson:"seasonId"`
 	ItineraryVarID           int                `bson:"itineraryVarId"`
@@ -174,4 +175,19 @@ type DeliveryResult struct {
 	RejectedRecords int          `json:"rejectedRecords"`
 	Errors          []string     `json:"errors"`
 	APIResponse     *APIResponse `json:"apiResponse,omitempty"`
+}
+
+// Airport represents the IATA airport information
+type Airport struct {
+	ID               primitive.ObjectID `bson:"_id,omitempty"`
+	CityName         string             `bson:"cityName"`
+	IATAAirportCode  string             `bson:"iataAirportCode"`
+	ICAOAirportCode  string             `bson:"icaoAirportCode"`
+	AirportShortName string             `bson:"airportShortName"`
+	AirportName      string             `bson:"airportName"`
+	Language         []string           `bson:"language"`
+	IsActive         bool               `bson:"isActive"`
+	CityTranslation  []interface{}      `bson:"cityTranslation"`
+	CountryCode      string             `bson:"countryCode"`
+	UTCVariation     string             `bson:"utcVariation"`
 }
