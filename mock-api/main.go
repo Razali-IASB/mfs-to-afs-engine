@@ -41,7 +41,7 @@ func main() {
 	http.HandleFunc("/health", handleHealth)
 
 	log.Printf("Mock API Receiver starting on port %s...\n", port)
-	log.Printf("XML files will be saved to: %s\n", downloadsDir)
+	log.Printf("JSON files will be saved to: %s\n", downloadsDir)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func handleSchedules(w http.ResponseWriter, r *http.Request, downloadsDir string
 		return
 	}
 
-	// Read XML payload
+	// Read JSON payload
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
@@ -61,31 +61,31 @@ func handleSchedules(w http.ResponseWriter, r *http.Request, downloadsDir string
 	}
 	defer r.Body.Close()
 
-	xmlContent := string(body)
+	jsonContent := string(body)
 
 	// Generate filename with timestamp
 	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("fidasm_%s.xml", timestamp)
+	filename := fmt.Sprintf("fidasm_%s.json", timestamp)
 	filepath := filepath.Join(downloadsDir, filename)
 
-	// Save XML to file
+	// Save JSON to file
 	err = os.WriteFile(filepath, body, 0644)
 	if err != nil {
-		log.Printf("ERROR: Failed to save XML file: %v\n", err)
-		http.Error(w, "Failed to save XML file", http.StatusInternalServerError)
+		log.Printf("ERROR: Failed to save JSON file: %v\n", err)
+		http.Error(w, "Failed to save JSON file", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✓ XML file saved: %s\n", filepath)
+	log.Printf("✓ JSON file saved: %s\n", filepath)
 
 
-	flightCount := strings.Count(xmlContent, "<PayLoad>")
+	flightCount := strings.Count(jsonContent, "<PayLoad>")
 	if flightCount == 0 {
-		flightCount = strings.Count(xmlContent, "<Flight ")
+		flightCount = strings.Count(jsonContent, "<Flight ")
 	}
 
 	log.Printf("Received batch with %d flights\n", flightCount)
-	log.Printf("XML size: %d bytes\n", len(xmlContent))
+	log.Printf("JSON size: %d bytes\n", len(jsonContent))
 
 	time.Sleep(100 * time.Millisecond)
 
