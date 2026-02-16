@@ -20,14 +20,16 @@ type AFSGenerator struct {
 	config        *config.Config
 	airportCache  map[string]*models.Airport
 	cacheLoadTime time.Time
+	configService *ConfigService
 }
 
 // NewAFSGenerator creates a new AFS generator
 func NewAFSGenerator(db *Database, cfg *config.Config) *AFSGenerator {
 	return &AFSGenerator{
-		db:           db,
-		config:       cfg,
-		airportCache: make(map[string]*models.Airport),
+		db:            db,
+		config:        cfg,
+		airportCache:  make(map[string]*models.Airport),
+		configService: NewConfigService(db),
 	}
 }
 
@@ -108,6 +110,11 @@ func (g *AFSGenerator) GenerateAFS(ctx context.Context, targetDate *time.Time) (
 	// Load airport cache before processing
 	if err := g.loadAirportCache(ctx); err != nil {
 		log.WithError(err).Warn("Failed to load airport cache, category codes may be inaccurate")
+	}
+
+	// Load operational configurations
+	if err := g.configService.LoadConfigurations(ctx); err != nil {
+		log.WithError(err).Warn("Failed to load operational configurations, timings may be missing")
 	}
 
 	// Phase 1: Query valid MFS records
@@ -292,6 +299,27 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 		// Determine category code (International/Domestic)
 		categoryCode := g.determineCategoryCode(station.DepartureStation, station.ArrivalStation)
 
+		// Calculate operational timings (only for departures)
+		var opTimings models.OperationalTimings
+		if movementType == "DEPARTURE" {
+			timings, err := g.configService.CalculateOperationalTimings(
+				flightDate,
+				station.STD,
+				mfs.FlightOwner,
+				categoryCode,
+				movementType,
+			)
+			if err != nil {
+				log.WithError(err).WithFields(log.Fields{
+					"flightNo":   mfs.FlightNo,
+					"flightDate": flightDate,
+					"std":        station.STD,
+				}).Warn("Failed to calculate operational timings")
+			} else if timings != nil {
+				opTimings = *timings
+			}
+		}
+
 		afs := models.ActiveFlight{
 			ID:                       afsObjectID,
 			FlightNo:                 mfs.FlightNo,
@@ -319,6 +347,7 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			HomeStation:              mfs.HomeStation,
 			MovementType:             movementType,
 			CategoryCode:             categoryCode,
+			OperationalTimings:       opTimings,
 			SourceMFSID:              mfs.ID,
 			SeasonID:                 mfs.SeasonID,
 			ItineraryVarID:           mfs.ItineraryVarID,
@@ -336,6 +365,7 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			"arrival":      station.ArrivalStation,
 			"movementType": movementType,
 			"categoryCode": categoryCode,
+			"hasTimings":   opTimings.SchOpenTimeC != "",
 			"legSeq":       i + 1,
 		}).Debug("Created AFS record for homeStation leg")
 
@@ -381,6 +411,7 @@ func (g *AFSGenerator) upsertAFS(ctx context.Context, afs models.ActiveFlight) e
 			"homeStation":              afs.HomeStation,
 			"movementType":             afs.MovementType,
 			"categoryCode":             afs.CategoryCode,
+			"operationalTimings":       afs.OperationalTimings,
 			"sourceMFSId":              afs.SourceMFSID,
 			"seasonId":                 afs.SeasonID,
 			"itineraryVarId":           afs.ItineraryVarID,

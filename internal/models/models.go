@@ -121,6 +121,10 @@ type ActiveFlight struct {
 	HomeStation              string             `bson:"homeStation"`                // The home station this AFS record belongs to
 	MovementType             string             `bson:"movementType"`               // "ARRIVAL" or "DEPARTURE" relative to homeStation
 	CategoryCode             string             `bson:"categoryCode"`               // "I" for International, "D" for Domestic
+	
+	// Operational timings - embedded struct
+	OperationalTimings       OperationalTimings `bson:"operationalTimings,omitempty"` // Check-in and gate timings
+	
 	SourceMFSID              primitive.ObjectID `bson:"sourceMFSId"`
 	SeasonID                 string             `bson:"seasonId"`
 	ItineraryVarID           int                `bson:"itineraryVarId"`
@@ -134,6 +138,19 @@ type ActiveFlight struct {
 	ExpiresAt                time.Time          `bson:"expiresAt"` // TTL
 	CreatedAt                time.Time          `bson:"createdAt"`
 	UpdatedAt                time.Time          `bson:"updatedAt"`
+}
+
+// OperationalTimings represents calculated operational timings for a flight
+type OperationalTimings struct {
+	// Check-in timings
+	SchOpenTimeC  string `bson:"schOpenTimeC,omitempty" json:"schOpenTimeC,omitempty"`   // Scheduled Open Time for CheckIn (YYYYMMDDHHmm)
+	SchCloseTimeC string `bson:"schCloseTimeC,omitempty" json:"schCloseTimeC,omitempty"` // Scheduled Close Time for CheckIn (YYYYMMDDHHmm)
+	
+	// Gate timings
+	SchOpenTimeL  string `bson:"schOpenTimeL,omitempty" json:"schOpenTimeL,omitempty"`   // Scheduled Open Time for gate (YYYYMMDDHHmm)
+	SchCloseTimeL string `bson:"schCloseTimeL,omitempty" json:"schCloseTimeL,omitempty"` // Scheduled Close Time for gate (YYYYMMDDHHmm)
+	SchBoardTimeL string `bson:"schBoardTimeL,omitempty" json:"schBoardTimeL,omitempty"` // Scheduled Boarding Time for Lounge (YYYYMMDDHHmm)
+	SchFCTimeL    string `bson:"schFcTimeL,omitempty" json:"schFcTimeL,omitempty"`       // Scheduled Final Call Time (YYYYMMDDHHmm)
 }
 
 // APIResponse stores the API delivery response

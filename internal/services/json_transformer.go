@@ -38,56 +38,56 @@ type HeaderJSON struct {
 
 // PayLoadJSON represents a single flight payload
 type PayLoadJSON struct {
-	Header              string `json:"header"`
-	ActionCode          string `json:"actionCode"`
-	AFSkey              string `json:"afsKey"`
-	FlightNo            string `json:"flightNo"`
-	Leg                 string `json:"leg"`
-	STAD                string `json:"stad"`
-	OfficialFlightDate  string `json:"officialFlightDate"`
-	AircraftType        string `json:"aircraftType"`
-	ServiceClass        string `json:"serviceClass"`
-	AircraftOperator    string `json:"aircraftOperator"`
-	ServiceTypeCode     string `json:"serviceTypeCode"`
+	Header              string   `json:"header"`
+	ActionCode          string   `json:"actionCode"`
+	AFSkey              string   `json:"afsKey"`
+	FlightNo            string   `json:"flightNo"`
+	Leg                 string   `json:"leg"`
+	STAD                string   `json:"stad"`
+	OfficialFlightDate  string   `json:"officialFlightDate"`
+	AircraftType        string   `json:"aircraftType"`
+	ServiceClass        string   `json:"serviceClass"`
+	AircraftOperator    string   `json:"aircraftOperator"`
+	ServiceTypeCode     string   `json:"serviceTypeCode"`
 	CodeShareFlight     []string `json:"codeShareFlight"`
-	FlightMode          string `json:"flightMode"`
-	ModeSequence        string `json:"modeSequence"`
-	CategoryCode        string `json:"categoryCode"`
-	Station1            string `json:"station1"`
-	Station2            string `json:"station2"`
-	Station3            string `json:"station3"`
-	Station4            string `json:"station4"`
-	Station5            string `json:"station5"`
-	Station6            string `json:"station6"`
-	STD1                string `json:"std1"`
-	STD2                string `json:"std2"`
-	STD3                string `json:"std3"`
-	STD4                string `json:"std4"`
-	STD5                string `json:"std5"`
-	STA2                string `json:"sta2"`
-	STA3                string `json:"sta3"`
-	STA4                string `json:"sta4"`
-	STA5                string `json:"sta5"`
-	STA6                string `json:"sta6"`
-	SpFIndicator        string `json:"spfIndicator"`
-	SchOpenTimeC        string `json:"schOpenTimeC"`
-	SchCloseTimeC       string `json:"schCloseTimeC"`
-	SchOpenTimeL        string `json:"schOpenTimeL"`
-	SchCloseTimeL       string `json:"schCloseTimeL"`
-	SchBoardTimeL       string `json:"schBoardTimeL"`
-	SchFCTimeL          string `json:"schFcTimeL"`
-	StandCode           string `json:"standCode"`
-	LoungeCode          string `json:"loungeCode"`
-	AcftRegnNo          string `json:"acftRegnNo"`
-	Memo                string `json:"memo"`
-	TerminalID          string `json:"terminalId"`
-	SuffixDisp          string `json:"suffixDisp"`
-	CheckInType         string `json:"checkInType"`
-	IslandsAlloc        string `json:"islandsAlloc"`
-	DeskAlloc           string `json:"deskAlloc"`
-	IslandStatus        string `json:"islandStatus"`
-	ActIslandOpenTime   string `json:"actIslandOpenTime"`
-	ActIslandCloseTime  string `json:"actIslandCloseTime"`
+	FlightMode          string   `json:"flightMode"`
+	ModeSequence        string   `json:"modeSequence"`
+	CategoryCode        string   `json:"categoryCode"`
+	Station1            string   `json:"station1"`
+	Station2            string   `json:"station2"`
+	Station3            string   `json:"station3"`
+	Station4            string   `json:"station4"`
+	Station5            string   `json:"station5"`
+	Station6            string   `json:"station6"`
+	STD1                string   `json:"std1"`
+	STD2                string   `json:"std2"`
+	STD3                string   `json:"std3"`
+	STD4                string   `json:"std4"`
+	STD5                string   `json:"std5"`
+	STA2                string   `json:"sta2"`
+	STA3                string   `json:"sta3"`
+	STA4                string   `json:"sta4"`
+	STA5                string   `json:"sta5"`
+	STA6                string   `json:"sta6"`
+	SpFIndicator        string   `json:"spfIndicator"`
+	SchOpenTimeC        string   `json:"schOpenTimeC"`
+	SchCloseTimeC       string   `json:"schCloseTimeC"`
+	SchOpenTimeL        string   `json:"schOpenTimeL"`
+	SchCloseTimeL       string   `json:"schCloseTimeL"`
+	SchBoardTimeL       string   `json:"schBoardTimeL"`
+	SchFCTimeL          string   `json:"schFcTimeL"`
+	StandCode           string   `json:"standCode"`
+	LoungeCode          string   `json:"loungeCode"`
+	AcftRegnNo          string   `json:"acftRegnNo"`
+	Memo                string   `json:"memo"`
+	TerminalID          string   `json:"terminalId"`
+	SuffixDisp          string   `json:"suffixDisp"`
+	CheckInType         string   `json:"checkInType"`
+	IslandsAlloc        string   `json:"islandsAlloc"`
+	DeskAlloc           string   `json:"deskAlloc"`
+	IslandStatus        string   `json:"islandStatus"`
+	ActIslandOpenTime   string   `json:"actIslandOpenTime"`
+	ActIslandCloseTime  string   `json:"actIslandCloseTime"`
 }
 
 // TransformToJSON transforms AFS records to FIDASM1 JSON format
@@ -189,6 +189,9 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 	// Use CategoryCode from AFS record, default to "I" if not set
 	categoryCode := afs.CategoryCode
 
+	// Use operational timings from AFS record (will be populated for departures only)
+	timings := afs.OperationalTimings
+
 	return PayLoadJSON{
 		Header:             "AFS",
 		ActionCode:         "NEW",
@@ -198,7 +201,7 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 		STAD:               stad,
 		OfficialFlightDate: officialFlightDate,
 		AircraftType:       afs.AircraftType,
-		ServiceClass:       null, // Need to find out how to fill up this field
+		ServiceClass:       "",   // Need to find out how to fill up this field
 		AircraftOperator:   afs.FlightOwner,
 		ServiceTypeCode:    afs.ServiceType,
 		CodeShareFlight:    codeshareFlights,
@@ -222,24 +225,24 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 		STA5:               "",
 		STA6:               "",
 		SpFIndicator:       "N",
-		SchOpenTimeC:       null,
-		SchCloseTimeC:      null,
-		SchOpenTimeL:       null,
-		SchCloseTimeL:      null,
-		SchBoardTimeL:      null,
-		SchFCTimeL:         null,
-		StandCode:          null,
-		LoungeCode:         null
+		SchOpenTimeC:       timings.SchOpenTimeC,
+		SchCloseTimeC:      timings.SchCloseTimeC,
+		SchOpenTimeL:       timings.SchOpenTimeL,
+		SchCloseTimeL:      timings.SchCloseTimeL,
+		SchBoardTimeL:      timings.SchBoardTimeL,
+		SchFCTimeL:         timings.SchFCTimeL,
+		StandCode:          "",
+		LoungeCode:         "",
 		AcftRegnNo:         afs.TailNo,
-		Memo:               null,
+		Memo:               "",
 		TerminalID:         afs.PassengerTerminalDep,
 		SuffixDisp:         "N",
 		CheckInType:        "C", // Need to find out how to fill up this field
-		IslandsAlloc:       null,
-		DeskAlloc:          null,
-		IslandStatus:       null,
-		ActIslandOpenTime:  null,
-		ActIslandCloseTime: null,
+		IslandsAlloc:       "",
+		DeskAlloc:          "",
+		IslandStatus:       "",
+		ActIslandOpenTime:  "",
+		ActIslandCloseTime: "",
 	}
 }
 
