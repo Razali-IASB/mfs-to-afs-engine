@@ -5,11 +5,16 @@ services:
   mongodb-primary:
     image: mongo:7.0
     container_name: afs-mongodb-primary
-    command: mongod --replSet rs0 --bind_ip_all
+    command: >
+      mongod
+      --replSet Iax-Bintulu
+      --bind_ip_all
+      --keyFile /etc/mongo-keyfile/keyfile
     ports:
       - "27017:27017"
     volumes:
       - mongodb_primary_data:/data/db
+      - ./mongo-keyfile/keyfile:/etc/mongo-keyfile/keyfile:ro
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: afs_secure_pass_2026
@@ -23,13 +28,18 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # MongoDB Secondary (for replica set)
+  # MongoDB Secondary
   mongodb-secondary:
     image: mongo:7.0
     container_name: afs-mongodb-secondary
-    command: mongod --replSet rs0 --bind_ip_all
+    command: >
+      mongod
+      --replSet Iax-Bintulu
+      --bind_ip_all
+      --keyFile /etc/mongo-keyfile/keyfile
     volumes:
       - mongodb_secondary_data:/data/db
+      - ./mongo-keyfile/keyfile:/etc/mongo-keyfile/keyfile:ro
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: afs_secure_pass_2026
@@ -48,20 +58,27 @@ services:
     depends_on:
       mongodb-primary:
         condition: service_healthy
-    entrypoint: >
-      bash -c "
-        sleep 10 &&
-        mongosh --host mongodb-primary:27017 -u admin -p afs_secure_pass_2026 --authenticationDatabase admin --eval '
-          rs.initiate({
-            _id: \"rs0\",
+    entrypoint:
+      - bash
+      - -c
+      - |
+        echo "Waiting for MongoDB primary..."
+        sleep 10
+
+        mongosh mongodb-primary:27017 \
+          -u admin \
+          -p afs_secure_pass_2026 \
+          --authenticationDatabase admin \
+          --eval "rs.initiate({
+            _id: 'Iax-Bintulu',
             members: [
-              { _id: 0, host: \"mongodb-primary:27017\", priority: 2 },
-              { _id: 1, host: \"mongodb-secondary:27017\", priority: 1 }
+              { _id: 0, host: 'mongodb-primary:27017', priority: 2 },
+              { _id: 1, host: 'mongodb-secondary:27017', priority: 1 }
             ]
-          })
-        ' &&
-        echo \"Replica set initialized successfully\"
-      "
+          })"
+
+        echo "Replica set initialized successfully"
+
 
   # AFS Engine (Go Application)
   afs-engine:
@@ -70,33 +87,27 @@ services:
       dockerfile: Dockerfile
     container_name: afs-engine
     environment:
-      # MongoDB
-      MONGO_URI: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/afs_db?replicaSet=rs0&authSource=admin
+      MONGO_URI: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?replicaSet=Iax-Bintulu&authSource=admin
       MONGO_DATABASE: afs_db
-      
-      # API
+      MONGO_REFERENCE_DATABASE: master_reference
+
       API_ENDPOINT: http://api-receiver:3001/api/schedules
       API_TIMEOUT: 30s
       RETRY_ATTEMPTS: 3
       RETRY_DELAY_MS: 60s
-      
-      # Scheduler
-      CRON_SCHEDULE: "0 0 * * *"
-      
-      # Processing
+
+      CRON_SCHEDULE: "15 16 * * *"
+
       BATCH_SIZE: 100
       MAX_WORKERS: 4
-      
-      # Storage
+
       AFS_TTL_DAYS: 7
       ENABLE_XML_ARCHIVE: "true"
       ARCHIVE_PATH: /app/archive
-      
-      # Logging
+
       LOG_LEVEL: info
       LOG_PATH: /app/logs
-      
-      # App
+
       NODE_ENV: production
       PORT: 3000
     ports:
@@ -116,7 +127,7 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # Mock API Receiver (Simulates downstream system)
+  # Mock API Receiver
   api-receiver:
     build:
       context: ./mock-api
@@ -124,20 +135,23 @@ services:
     container_name: api-receiver
     environment:
       PORT: 3001
+      DOWNLOADS_DIR: /app/downloads
     ports:
       - "3001:3001"
+    volumes:
+      - ~/Downloads/fidasm-xml:/app/downloads
     networks:
       - afs-network
     restart: unless-stopped
 
-  # MongoDB Web UI (Optional - for monitoring)
+  # Mongo Express (Web UI)
   mongo-express:
     image: mongo-express:latest
     container_name: afs-mongo-express
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: admin
       ME_CONFIG_MONGODB_ADMINPASSWORD: afs_secure_pass_2026
-      ME_CONFIG_MONGODB_URL: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?authSource=admin
+      ME_CONFIG_MONGODB_URL: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?replicaSet=Iax-Bintulu&authSource=admin
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: admin
     ports:

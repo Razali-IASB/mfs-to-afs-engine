@@ -167,8 +167,15 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 	categoryCode := afs.CategoryCode
 	timings := afs.OperationalTimings
 
+	hasSuffix := afs.OperationalSuffix != ""
+
+	combinedFlightNo := afs.FlightNo
+	if hasSuffix {
+		combinedFlightNo += afs.OperationalSuffix
+	}
+
 	suffixDisp := "N"
-	if afs.OperationalSuffix != "" && afs.ShowSuffix {
+	if hasSuffix && afs.ShowSuffix {
 		suffixDisp = "Y"
 	}
 
@@ -176,7 +183,7 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 		Header:             "AFS",
 		ActionCode:         "NEW",
 		AFSkey:             afs.ID.Hex(),
-		FlightNo:           afs.FlightNo,
+		FlightNo:           combinedFlightNo,
 		Leg:                legValue,
 		STAD:               stad,
 		OfficialFlightDate: officialFlightDate,

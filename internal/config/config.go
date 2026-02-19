@@ -111,7 +111,7 @@ func Load() (*Config, error) {
 		"env":                cfg.App.Env,
 		"mongo_uri":          cfg.MongoDB.URI,
 		"afs_database":       cfg.MongoDB.Database,
-		"reference_database": cfg.MongoDB.ReferenceDatabase,  // ← ADD THIS
+		"reference_database": cfg.MongoDB.ReferenceDatabase,
 		"api":                cfg.API.Endpoint,
 		"schedule":           cfg.Scheduler.CronSchedule,
 	}).Info("Configuration loaded")
