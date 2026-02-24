@@ -85,6 +85,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: iaxrazali/afs-engine:latest
     container_name: afs-engine
     environment:
       MONGO_URI: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?replicaSet=Iax-Bintulu&authSource=admin
@@ -132,6 +133,7 @@ services:
     build:
       context: ./mock-api
       dockerfile: Dockerfile
+    image: iaxrazali/api-receiver:latest
     container_name: api-receiver
     environment:
       PORT: 3001
@@ -139,7 +141,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ~/Downloads/fidasm-xml:/app/downloads
+      - ~/Downloads/fidasm-sent:/app/downloads
     networks:
       - afs-network
     restart: unless-stopped
@@ -164,6 +166,7 @@ services:
 
 networks:
   afs-network:
+    name: afs-network
     driver: bridge
 
 volumes:
