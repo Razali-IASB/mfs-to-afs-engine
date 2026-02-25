@@ -148,13 +148,24 @@ type OperationalTimings struct {
 	SchFCTimeL    string `bson:"schFcTimeL,omitempty" json:"schFcTimeL,omitempty"`
 }
 
+// FlightResult represents a per-flight result from the API response
+type FlightResult struct {
+    FlightNumber        string `json:"flightNumber" bson:"flightNumber"`
+    ScheduledTravelTime string `json:"scheduledTravelTime" bson:"scheduledTravelTime"`
+    Status              string `json:"status" bson:"status"`
+}
+
+// APIResponse represents the downstream API response
 type APIResponse struct {
-	StatusCode int       `bson:"statusCode"`
-	Message    string    `bson:"message"`
-	Timestamp  time.Time `bson:"timestamp"`
-	Accepted   int       `bson:"accepted"`
-	Rejected   int       `bson:"rejected"`
-	Errors     []string  `bson:"errors,omitempty"`
+    StatusCode  int            `json:"statusCode" bson:"statusCode"`
+    Message     string         `json:"message" bson:"message"`
+    Timestamp   time.Time      `json:"timestamp" bson:"timestamp"`
+    Accepted    int            `json:"accepted" bson:"accepted"`   // maps to successCount
+    Rejected    int            `json:"rejected" bson:"rejected"`   // maps to failedCount
+    MsgCode     string         `json:"msgCode" bson:"msgCode"`
+    MsgTimeSent string         `json:"msgTimeSent" bson:"msgTimeSent"`
+    Results     []FlightResult `json:"results" bson:"results"`
+    Errors      []string       `json:"errors,omitempty" bson:"errors,omitempty"`
 }
 
 type GenerationStats struct {

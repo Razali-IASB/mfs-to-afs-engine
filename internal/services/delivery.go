@@ -179,28 +179,53 @@ func (d *APIDelivery) sendRequest(ctx context.Context, jsonPayload string) (*mod
 
 	// Parse response
 	var apiResp struct {
-		Message  string   `json:"message"`
-		Accepted int      `json:"accepted"`
-		Rejected int      `json:"rejected"`
-		Errors   []string `json:"errors"`
+		StatusCode int    `json:"statusCode"`
+		Message    string `json:"message"`
+		Success    bool   `json:"success"`
+		Data       struct {
+			MsgCode      string `json:"msgCode"`
+			MsgTimeSent  string `json:"msgTimeSent"`
+			SuccessCount int    `json:"successCount"`
+			FailedCount  int    `json:"failedCount"`
+			Results      []struct {
+				FlightNumber        string `json:"flightNumber"`
+				ScheduledTravelTime string `json:"scheduledTravelTime"`
+				Status              string `json:"status"`
+			} `json:"results"`
+		} `json:"data"`
 	}
 
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		// If not JSON, use simple response
 		apiResp.Message = string(body)
 	}
 
-	response := &models.APIResponse{
-		StatusCode: resp.StatusCode,
-		Message:    apiResp.Message,
-		Timestamp:  time.Now(),
-		Accepted:   apiResp.Accepted,
-		Rejected:   apiResp.Rejected,
-		Errors:     apiResp.Errors,
+	// Prefer statusCode from response body if present, else fall back to HTTP status
+	resolvedStatusCode := resp.StatusCode
+	if apiResp.StatusCode != 0 {
+		resolvedStatusCode = apiResp.StatusCode
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return response, fmt.Errorf("API returned status %d: %s", resp.StatusCode, apiResp.Message)
+	response := &models.APIResponse{
+		StatusCode:  resolvedStatusCode,
+		Message:     apiResp.Message,
+		Timestamp:   time.Now(),
+		Accepted:    apiResp.Data.SuccessCount,
+		Rejected:    apiResp.Data.FailedCount,
+		MsgCode:     apiResp.Data.MsgCode,
+		MsgTimeSent: apiResp.Data.MsgTimeSent,
+	}
+
+	for _, r := range apiResp.Data.Results {
+		response.Results = append(response.Results, models.FlightResult{
+			FlightNumber:        r.FlightNumber,
+			ScheduledTravelTime: r.ScheduledTravelTime,
+			Status:              r.Status,
+		})
+	}
+
+	isHTTPSuccess := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated
+	if !isHTTPSuccess && !apiResp.Success {
+		return response, fmt.Errorf("API returned status %d: %s", resolvedStatusCode, apiResp.Message)
 	}
 
 	return response, nil
