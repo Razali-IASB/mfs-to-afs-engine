@@ -83,7 +83,7 @@ func Load() (*Config, error) {
 			RetryDelay:    getEnvAsDuration("RETRY_DELAY_MS", 60*time.Second),
 		},
 		Scheduler: SchedulerConfig{
-			CronSchedule: getEnv("CRON_SCHEDULE", "0 0 * * *"),
+			CronSchedule: getEnv("CRON_SCHEDULE", "15 0 * * *"),
 		},
 		Processing: ProcessingConfig{
 			BatchSize:  getEnvAsInt("BATCH_SIZE", 100),

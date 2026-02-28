@@ -52,7 +52,7 @@ func CalculateExpiryDate(baseDate time.Time, days int) time.Time {
 
 // GetTodayDate returns current date at midnight
 func GetTodayDate() time.Time {
-	return NormalizeDate(time.Now())
+    return NormalizeDate(time.Now())
 }
 
 // ParseTime parses HHMM time string to hour and minute

@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # MongoDB Primary
   mongodb-primary:
     image: mongo:7.0
     container_name: afs-mongodb-primary
@@ -28,28 +25,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # MongoDB Secondary
-  mongodb-secondary:
-    image: mongo:7.0
-    container_name: afs-mongodb-secondary
-    command: >
-      mongod
-      --replSet Iax-Bintulu
-      --bind_ip_all
-      --keyFile /etc/mongo-keyfile/keyfile
-    volumes:
-      - mongodb_secondary_data:/data/db
-      - ./mongo-keyfile/keyfile:/etc/mongo-keyfile/keyfile:ro
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: afs_secure_pass_2026
-    networks:
-      - afs-network
-    depends_on:
-      - mongodb-primary
-    restart: unless-stopped
-
-  # MongoDB Replica Set Initializer
   mongo-setup:
     image: mongo:7.0
     container_name: mongo-setup
@@ -72,13 +47,11 @@ services:
           --eval "rs.initiate({
             _id: 'Iax-Bintulu',
             members: [
-              { _id: 0, host: 'mongodb-primary:27017', priority: 2 },
-              { _id: 1, host: 'mongodb-secondary:27017', priority: 1 }
+              { _id: 0, host: 'mongodb-primary:27017', priority: 1 }
             ]
           })"
 
         echo "Replica set initialized successfully"
-
 
   # AFS Engine (Go Application)
   afs-engine:
@@ -88,7 +61,7 @@ services:
     image: iaxrazali/afs-engine:latest
     container_name: afs-engine
     environment:
-      MONGO_URI: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?replicaSet=Iax-Bintulu&authSource=admin
+      MONGO_URI: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017/?replicaSet=Iax-Bintulu&authSource=admin
       MONGO_DATABASE: afs_db
       MONGO_REFERENCE_DATABASE: master_reference
 
@@ -97,7 +70,7 @@ services:
       RETRY_ATTEMPTS: 3
       RETRY_DELAY_MS: 60s
 
-      CRON_SCHEDULE: "15 16 * * *"
+      CRON_SCHEDULE: "15 0 * * *"
 
       BATCH_SIZE: 100
       MAX_WORKERS: 4
@@ -111,6 +84,7 @@ services:
 
       NODE_ENV: production
       PORT: 3000
+      TZ: Asia/Kuala_Lumpur
     ports:
       - "3000:3000"
     volumes:
@@ -153,7 +127,7 @@ services:
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: admin
       ME_CONFIG_MONGODB_ADMINPASSWORD: afs_secure_pass_2026
-      ME_CONFIG_MONGODB_URL: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017,mongodb-secondary:27017/?replicaSet=Iax-Bintulu&authSource=admin
+      ME_CONFIG_MONGODB_URL: mongodb://admin:afs_secure_pass_2026@mongodb-primary:27017/?replicaSet=Iax-Bintulu&authSource=admin
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: admin
     ports:
@@ -171,4 +145,3 @@ networks:
 
 volumes:
   mongodb_primary_data:
-  mongodb_secondary_data:
