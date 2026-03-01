@@ -36,7 +36,8 @@ func IsWithinValidityPeriod(currentDate, startDate, endDate time.Time) bool {
 
 // NormalizeDate sets time to midnight (00:00:00)
 func NormalizeDate(date time.Time) time.Time {
-	return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+    d := date.UTC()
+    return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // FormatDate formats date as YYYY-MM-DD
@@ -52,7 +53,12 @@ func CalculateExpiryDate(baseDate time.Time, days int) time.Time {
 
 // GetTodayDate returns current date at midnight
 func GetTodayDate() time.Time {
-    return NormalizeDate(time.Now())
+    myt, err := time.LoadLocation("Asia/Kuala_Lumpur")
+    if err != nil {
+        myt = time.FixedZone("MYT", 8*60*60)
+    }
+    now := time.Now().In(myt)
+    return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // ParseTime parses HHMM time string to hour and minute
