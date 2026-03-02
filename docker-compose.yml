@@ -65,7 +65,7 @@ services:
       MONGO_DATABASE: afs_db
       MONGO_REFERENCE_DATABASE: master_reference
 
-      API_ENDPOINT: http://api-receiver:3001/api/schedules
+      API_ENDPOINT: http://localhost:8081/flight-data-entry/bulkScheduleSitaFlights
       API_TIMEOUT: 30s
       RETRY_ATTEMPTS: 3
       RETRY_DELAY_MS: 60s

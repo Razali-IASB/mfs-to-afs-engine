@@ -61,9 +61,7 @@ type AppConfig struct {
 	Port string
 }
 
-// Load loads configuration from environment variables
 func Load() (*Config, error) {
-	// Load .env file if exists (ignore error in production)
 	_ = godotenv.Load()
 
 	cfg := &Config{
@@ -77,7 +75,7 @@ func Load() (*Config, error) {
 			ServerSelectionTimeout: getEnvAsDuration("MONGO_SERVER_SELECTION_TIMEOUT", 5*time.Second),
 		},
 		API: APIConfig{
-			Endpoint:      getEnv("API_ENDPOINT", "http://api-receiver:3001/api/schedules"),
+			Endpoint:      getEnv("API_ENDPOINT", "http://localhost:8081/flight-data-entry/bulkScheduleSitaFlights"),
 			Timeout:       getEnvAsDuration("API_TIMEOUT", 30*time.Second),
 			RetryAttempts: getEnvAsInt("RETRY_ATTEMPTS", 3),
 			RetryDelay:    getEnvAsDuration("RETRY_DELAY_MS", 60*time.Second),
