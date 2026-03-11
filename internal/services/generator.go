@@ -14,6 +14,14 @@ import (
 	"time"
 )
 
+// MFSMatch wraps a MasterFlight with the UTC operating day it matched for.
+// When a flight's local departure crosses midnight due to timezone offset,
+// BaseDate will differ from the target date by the local day offset.
+type MFSMatch struct {
+	MFS      models.MasterFlight
+	BaseDate time.Time // The UTC operating day this MFS matched for
+}
+
 // AFSGenerator handles AFS generation from MFS
 type AFSGenerator struct {
 	db            *Database
@@ -117,28 +125,28 @@ func (g *AFSGenerator) GenerateAFS(ctx context.Context, targetDate *time.Time) (
 		log.WithError(err).Warn("Failed to load operational configurations, timings may be missing")
 	}
 
-	// Phase 1: Query valid MFS records
-	mfsRecords, err := g.queryValidMFS(ctx, flightDate)
+	// Phase 1: Query valid MFS records (local-date-aware)
+	mfsMatches, err := g.queryValidMFSForLocalDate(ctx, flightDate)
 	if err != nil {
 		return stats, fmt.Errorf("failed to query MFS: %w", err)
 	}
 
-	stats.MFSRecordsQueried = len(mfsRecords)
-	log.WithField("count", len(mfsRecords)).Info("Found valid MFS records")
+	stats.MFSRecordsQueried = len(mfsMatches)
+	log.WithField("count", len(mfsMatches)).Info("Found valid MFS records")
 
 	// Phase 2: Query codeshares for all MFS records
-	mfsRecords, err = g.attachCodeshares(ctx, mfsRecords, flightDate)
+	mfsMatches, err = g.attachCodeshares(ctx, mfsMatches)
 	if err != nil {
 		log.WithError(err).Warn("Failed to attach codeshares, continuing without them")
 	}
 
-	// Phase 3: Process each MFS record
-	for _, mfs := range mfsRecords {
-		afsRecords := g.expandMFSToAFS(mfs, flightDate)
+	// Phase 3: Process each MFS record using its baseDate
+	for _, match := range mfsMatches {
+		afsRecords := g.expandMFSToAFS(match.MFS, match.BaseDate)
 
 		for _, afs := range afsRecords {
 			if err := g.upsertAFS(ctx, afs); err != nil {
-				log.WithError(err).WithField("flightNo", mfs.FlightNo).Error("Failed to upsert AFS")
+				log.WithError(err).WithField("flightNo", match.MFS.FlightNo).Error("Failed to upsert AFS")
 				stats.Errors++
 				continue
 			}
@@ -159,13 +167,19 @@ func (g *AFSGenerator) GenerateAFS(ctx context.Context, targetDate *time.Time) (
 	return stats, nil
 }
 
-// queryValidMFS queries MFS records valid for target date
-func (g *AFSGenerator) queryValidMFS(ctx context.Context, targetDate time.Time) ([]models.MasterFlight, error) {
+// queryValidMFSForLocalDate queries MFS records whose local departure date matches the target date.
+// It widens the DB query by ±1 day to catch flights where UTC-to-local timezone conversion
+// shifts the operating day, then filters by frequency using the computed baseDate.
+func (g *AFSGenerator) queryValidMFSForLocalDate(ctx context.Context, targetDate time.Time) ([]MFSMatch, error) {
 	collection := g.db.GetCollection("master_flights")
 
+	// Widen window by ±1 day to catch cross-midnight timezone shifts
+	windowStart := targetDate.AddDate(0, 0, -1)
+	windowEnd := targetDate.AddDate(0, 0, 1)
+
 	filter := bson.M{
-		"startDate":      bson.M{"$lte": targetDate},
-		"endDate":        bson.M{"$gte": targetDate},
+		"startDate":      bson.M{"$lte": windowEnd},
+		"endDate":        bson.M{"$gte": windowStart},
 		"scheduleStatus": "ACTIVE",
 	}
 
@@ -175,74 +189,123 @@ func (g *AFSGenerator) queryValidMFS(ctx context.Context, targetDate time.Time) 
 	}
 	defer cursor.Close(ctx)
 
-	// Decode directly into MasterFlight structs - BSON tags now match MongoDB schema
 	var mfsRecords []models.MasterFlight
 	if err := cursor.All(ctx, &mfsRecords); err != nil {
 		return nil, err
 	}
 
-	// Filter by frequency pattern
-	var validRecords []models.MasterFlight
+	// For each MFS, calculate the local day offset and determine the baseDate
+	var matches []MFSMatch
 	for _, mfs := range mfsRecords {
-		if utils.MatchesFrequency(targetDate, mfs.Frequency, mfs.StartDate) {
-			validRecords = append(validRecords, mfs)
+		// Use the first station's STD and UTC offset to determine the day shift
+		offset := 0
+		if len(mfs.Stations) > 0 {
+			offset = utils.CalculateLocalDateOffset(
+				mfs.Stations[0].STD,
+				mfs.Stations[0].UTCLocalTimeVariationDep,
+			)
 		}
+
+		// baseDate is the UTC operating day that produces a local departure on targetDate
+		baseDate := targetDate.AddDate(0, 0, -offset)
+
+		// Check that baseDate falls within the MFS validity period
+		if !utils.IsWithinValidityPeriod(baseDate, mfs.StartDate, mfs.EndDate) {
+			continue
+		}
+
+		// Check frequency against the baseDate (the actual UTC operating day)
+		if !utils.MatchesFrequency(baseDate, mfs.Frequency, mfs.StartDate) {
+			continue
+		}
+
+		matches = append(matches, MFSMatch{
+			MFS:      mfs,
+			BaseDate: baseDate,
+		})
 	}
 
-	return validRecords, nil
+	return matches, nil
 }
 
-// attachCodeshares queries and attaches codeshare information to MFS records
-func (g *AFSGenerator) attachCodeshares(ctx context.Context, mfsRecords []models.MasterFlight, flightDate time.Time) ([]models.MasterFlight, error) {
-	if len(mfsRecords) == 0 {
-		return mfsRecords, nil
+// attachCodeshares queries and attaches codeshare information to MFS matches.
+// Each match's BaseDate is used for codeshare date/frequency filtering.
+func (g *AFSGenerator) attachCodeshares(ctx context.Context, matches []MFSMatch) ([]MFSMatch, error) {
+	if len(matches) == 0 {
+		return matches, nil
 	}
 
 	// Collect all MFS IDs
-	mfsIDs := make([]primitive.ObjectID, len(mfsRecords))
-	for i, mfs := range mfsRecords {
-		mfsIDs[i] = mfs.ID
+	mfsIDs := make([]primitive.ObjectID, len(matches))
+	for i, m := range matches {
+		mfsIDs[i] = m.MFS.ID
 	}
 
-	// Query all codeshares for these MFS records
+	// Build a map from MFS ID to its baseDate for per-record filtering
+	baseDateMap := make(map[primitive.ObjectID]time.Time)
+	for _, m := range matches {
+		baseDateMap[m.MFS.ID] = m.BaseDate
+	}
+
+	// Find the widest date range across all baseDates for the initial query
+	minDate := matches[0].BaseDate
+	maxDate := matches[0].BaseDate
+	for _, m := range matches[1:] {
+		if m.BaseDate.Before(minDate) {
+			minDate = m.BaseDate
+		}
+		if m.BaseDate.After(maxDate) {
+			maxDate = m.BaseDate
+		}
+	}
+
+	// Query all codeshares for these MFS records within the date range
 	collection := g.db.GetCollection("codeshares")
 	filter := bson.M{
 		"masterflightRef": bson.M{"$in": mfsIDs},
-		"csStartDate":     bson.M{"$lte": flightDate},
-		"csEndDate":       bson.M{"$gte": flightDate},
+		"csStartDate":     bson.M{"$lte": maxDate},
+		"csEndDate":       bson.M{"$gte": minDate},
 	}
 
 	cursor, err := collection.Find(ctx, filter)
 	if err != nil {
-		return mfsRecords, err
+		return matches, err
 	}
 	defer cursor.Close(ctx)
 
 	var codeshares []models.Codeshare
 	if err := cursor.All(ctx, &codeshares); err != nil {
-		return mfsRecords, err
+		return matches, err
 	}
 
-	// Filter codeshares by frequency and organize by MFS ID
+	// Filter codeshares by frequency using each MFS record's baseDate
 	codeshareMap := make(map[primitive.ObjectID][]models.Codeshare)
 	for _, cs := range codeshares {
-		if utils.MatchesFrequency(flightDate, cs.Frequency, cs.CSStartDate) {
+		baseDate, ok := baseDateMap[cs.MasterFlightRef]
+		if !ok {
+			continue
+		}
+		// Check codeshare validity and frequency against the baseDate
+		if !utils.IsWithinValidityPeriod(baseDate, cs.CSStartDate, cs.CSEndDate) {
+			continue
+		}
+		if utils.MatchesFrequency(baseDate, cs.Frequency, cs.CSStartDate) {
 			codeshareMap[cs.MasterFlightRef] = append(codeshareMap[cs.MasterFlightRef], cs)
 		}
 	}
 
-	// Attach codeshares to their corresponding MFS records
-	for i := range mfsRecords {
-		if codeshares, found := codeshareMap[mfsRecords[i].ID]; found {
-			mfsRecords[i].Codeshares = codeshares
+	// Attach codeshares to their corresponding MFS matches
+	for i := range matches {
+		if cs, found := codeshareMap[matches[i].MFS.ID]; found {
+			matches[i].MFS.Codeshares = cs
 			log.WithFields(log.Fields{
-				"flightNo":       mfsRecords[i].FlightNo,
-				"codeshareCount": len(codeshares),
+				"flightNo":       matches[i].MFS.FlightNo,
+				"codeshareCount": len(cs),
 			}).Debug("Attached codeshares to MFS")
 		}
 	}
 
-	return mfsRecords, nil
+	return matches, nil
 }
 
 // findMatchingCodeshares finds codeshares that match the given sector
@@ -447,12 +510,17 @@ func (g *AFSGenerator) upsertAFS(ctx context.Context, afs models.ActiveFlight) e
 	return err
 }
 
-// GetAFSForDelivery retrieves AFS records ready for delivery
+// GetAFSForDelivery retrieves AFS records ready for delivery.
+// Uses a date range [targetDate-1, targetDate] to include AFS records where
+// flightDate is the previous UTC day due to local-date-aware generation.
 func (g *AFSGenerator) GetAFSForDelivery(ctx context.Context, flightDate time.Time, status string) ([]models.ActiveFlight, error) {
 	collection := g.db.GetCollection("active_flights")
 
 	filter := bson.M{
-		"flightDate":     flightDate,
+		"flightDate": bson.M{
+			"$gte": flightDate.AddDate(0, 0, -1),
+			"$lte": flightDate,
+		},
 		"deliveryStatus": status,
 	}
 

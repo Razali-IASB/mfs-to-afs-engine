@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -111,4 +112,54 @@ func GenerateAFSID(flightNo string, flightDate time.Time, depStation, arrStation
 func GenerateBatchID(index int) string {
 	timestamp := time.Now().Format("2006-01-02T15-04-05")
 	return fmt.Sprintf("batch_%s_%03d", timestamp, index)
+}
+
+// ParseUTCOffset parses a UTC offset string ("+0800", "-0500", "+08:00") into total minutes.
+func ParseUTCOffset(offset string) int {
+	if offset == "" {
+		return 0
+	}
+
+	sign := 1
+	s := offset
+	if s[0] == '+' {
+		s = s[1:]
+	} else if s[0] == '-' {
+		sign = -1
+		s = s[1:]
+	}
+
+	// Remove colon if present ("+08:00" → "0800")
+	s = strings.ReplaceAll(s, ":", "")
+
+	if len(s) != 4 {
+		return 0
+	}
+
+	var hours, minutes int
+	_, err := fmt.Sscanf(s, "%02d%02d", &hours, &minutes)
+	if err != nil {
+		return 0
+	}
+
+	return sign * (hours*60 + minutes)
+}
+
+// CalculateLocalDateOffset calculates how many days the local departure date
+// differs from the UTC operating day. Returns 0 (same day), 1 (next day), or -1 (previous day).
+//
+// Examples:
+//   - STD "2325" + offset "+0800" → floor((1405+480)/1440) = 1 (next day)
+//   - STD "1000" + offset "+0800" → floor((600+480)/1440) = 0 (same day)
+//   - STD "0200" + offset "-0500" → floor((120-300)/1440) = -1 (previous day)
+func CalculateLocalDateOffset(stdUTC string, utcOffset string) int {
+	hour, minute, err := ParseTime(stdUTC)
+	if err != nil {
+		return 0
+	}
+
+	stdMinutes := hour*60 + minute
+	offsetMinutes := ParseUTCOffset(utcOffset)
+
+	return int(math.Floor(float64(stdMinutes+offsetMinutes) / 1440.0))
 }

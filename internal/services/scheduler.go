@@ -141,10 +141,13 @@ func (s *Scheduler) retryFailedJob() {
 
 	targetDate := utils.GetTodayDate()
 
-	// Find failed records
+	// Find failed records (widen to [targetDate-1, targetDate] for local-date-aware flights)
 	collection := s.db.GetCollection("active_flights")
 	filter := bson.M{
-		"flightDate":       targetDate,
+		"flightDate": bson.M{
+			"$gte": targetDate.AddDate(0, 0, -1),
+			"$lte": targetDate,
+		},
 		"deliveryStatus":   "FAILED",
 		"deliveryAttempts": bson.M{"$lt": s.config.API.RetryAttempts},
 	}
