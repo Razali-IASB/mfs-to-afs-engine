@@ -120,7 +120,7 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 	return PayLoadJSON{
 		Header:             "AFS",
 		ActionCode:         "NEW",
-		AFSkey:             int32(t.rng.Intn(900000000) + 100000000),
+		AFSkey:             fmt.Sprintf("%09d", t.rng.Intn(900000000)+100000000),
 		FlightNo:           combinedFlightNo,
 		Leg:                legValue,
 		STAD:               stad,

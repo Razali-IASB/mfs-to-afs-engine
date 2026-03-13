@@ -19,7 +19,7 @@ type HeaderJSON struct {
 type PayLoadJSON struct {
 	Header             string   `json:"header"`
 	ActionCode         string   `json:"actionCode"`
-	AFSkey             int32    `json:"afsKey"`
+	AFSkey             string   `json:"afsKey"`
 	FlightNo           string   `json:"flightNo"`
 	Leg                string   `json:"leg"`
 	STAD               string   `json:"stad"`
