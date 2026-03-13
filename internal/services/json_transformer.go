@@ -3,16 +3,21 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/mh-airlines/afs-engine/internal/models"
 	log "github.com/sirupsen/logrus"
 )
 
-type JSONTransformer struct{}
+type JSONTransformer struct {
+	rng *rand.Rand
+}
 
 func NewJSONTransformer() *JSONTransformer {
-	return &JSONTransformer{}
+	return &JSONTransformer{
+		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
 }
 
 func (t *JSONTransformer) TransformToJSON(afsRecords []models.ActiveFlight, batchID string) (string, error) {
@@ -115,7 +120,7 @@ func (t *JSONTransformer) transformFlight(afs models.ActiveFlight) PayLoadJSON {
 	return PayLoadJSON{
 		Header:             "AFS",
 		ActionCode:         "NEW",
-		AFSkey:             afs.ID.Hex(),
+		AFSkey: 			int64(t.rng.Intn(900000000000) + 100000000000),
 		FlightNo:           combinedFlightNo,
 		Leg:                legValue,
 		STAD:               stad,
