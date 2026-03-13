@@ -145,6 +145,45 @@ func ParseUTCOffset(offset string) int {
 	return sign * (hours*60 + minutes)
 }
 
+// ConvertUTCToLocal converts a UTC time string (HHMM) and its UTC day change
+// to local time using the given UTC offset. Returns the local time string (HHMM)
+// and the adjusted day change relative to the local flight date.
+//
+// Parameters:
+//   - utcTime: UTC time in HHMM format (e.g., "2200")
+//   - utcDayChange: day offset from UTC operating day (0 = same day, 1 = next day)
+//   - utcOffset: UTC offset string (e.g., "+0800", "-0500")
+//   - localDateOffset: days between local flight date and UTC baseDate (from CalculateLocalDateOffset)
+//
+// Examples (with localDateOffset=1, i.e., local date is 1 day ahead of UTC baseDate):
+//   - STD "2200", CD=0, offset "+0800" → local "0600", localCD=0
+//   - STA "0010", CA=1, offset "+0800" → local "0810", localCA=0
+func ConvertUTCToLocal(utcTime string, utcDayChange int, utcOffset string, localDateOffset int) (localTime string, localDayChange int) {
+	hour, minute, err := ParseTime(utcTime)
+	if err != nil {
+		return utcTime, utcDayChange // fallback to UTC on parse error
+	}
+
+	offsetMinutes := ParseUTCOffset(utcOffset)
+
+	// Total minutes from UTC baseDate midnight
+	totalMinutes := utcDayChange*1440 + hour*60 + minute + offsetMinutes
+
+	// Which local day this falls on (relative to UTC baseDate)
+	localDay := int(math.Floor(float64(totalMinutes) / 1440.0))
+
+	// Day change relative to the local flight date
+	localDayChange = localDay - localDateOffset
+
+	// Extract local time-of-day
+	minuteOfDay := totalMinutes - localDay*1440
+	localHour := minuteOfDay / 60
+	localMin := minuteOfDay % 60
+
+	localTime = fmt.Sprintf("%02d%02d", localHour, localMin)
+	return localTime, localDayChange
+}
+
 // CalculateLocalDateOffset calculates how many days the local departure date
 // differs from the UTC operating day. Returns 0 (same day), 1 (next day), or -1 (previous day).
 //

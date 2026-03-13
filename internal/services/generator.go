@@ -140,9 +140,9 @@ func (g *AFSGenerator) GenerateAFS(ctx context.Context, targetDate *time.Time) (
 		log.WithError(err).Warn("Failed to attach codeshares, continuing without them")
 	}
 
-	// Phase 3: Process each MFS record using its baseDate
+	// Phase 3: Process each MFS record — baseDate for internal calc, flightDate for local output
 	for _, match := range mfsMatches {
-		afsRecords := g.expandMFSToAFS(match.MFS, match.BaseDate)
+		afsRecords := g.expandMFSToAFS(match.MFS, match.BaseDate, flightDate)
 
 		for _, afs := range afsRecords {
 			if err := g.upsertAFS(ctx, afs); err != nil {
@@ -181,6 +181,10 @@ func (g *AFSGenerator) queryValidMFSForLocalDate(ctx context.Context, targetDate
 		"startDate":      bson.M{"$lte": windowEnd},
 		"endDate":        bson.M{"$gte": windowStart},
 		"scheduleStatus": "ACTIVE",
+		"$or": []bson.M{
+			{"deletedAt": nil},
+			{"deletedAt": bson.M{"$exists": false}},
+		},
 	}
 
 	cursor, err := collection.Find(ctx, filter)
@@ -321,8 +325,11 @@ func (g *AFSGenerator) findMatchingCodeshares(codeshares []models.Codeshare, sec
 	return matchingFlights
 }
 
-// expandMFSToAFS expands MFS record into AFS records (one per leg that touches homeStation)
-func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.Time) []models.ActiveFlight {
+// expandMFSToAFS expands MFS record into AFS records (one per leg that touches homeStation).
+// baseDate is the UTC operating day; localDate is the local operating day (targetDate).
+// Times are converted from UTC to local using each station's UTC offset.
+func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, baseDate time.Time, localDate time.Time) []models.ActiveFlight {
+	flightDate := localDate
 	var afsRecords []models.ActiveFlight
 
 	showSuffix := false
@@ -373,15 +380,29 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			movementType = "ARRIVAL"
 		}
 
+		// Convert UTC times to local times using each station's UTC offset
+		localDateOffset := utils.CalculateLocalDateOffset(
+			mfs.Stations[0].STD,
+			mfs.Stations[0].UTCLocalTimeVariationDep,
+		)
+		localSTD, localCD := utils.ConvertUTCToLocal(
+			station.STD, station.CD,
+			station.UTCLocalTimeVariationDep, localDateOffset,
+		)
+		localSTA, localCA := utils.ConvertUTCToLocal(
+			station.STA, station.CA,
+			station.UTCLocalTimeVariationArr, localDateOffset,
+		)
+
 		// Determine category code (International/Domestic)
 		categoryCode := g.determineCategoryCode(station.DepartureStation, station.ArrivalStation)
 
-		// Calculate operational timings (only for departures)
+		// Calculate operational timings (only for departures) using local STD
 		var opTimings models.OperationalTimings
 		if movementType == "DEPARTURE" {
 			timings, err := g.configService.CalculateOperationalTimings(
 				flightDate,
-				station.STD,
+				localSTD,
 				mfs.FlightOwner,
 				categoryCode,
 				movementType,
@@ -390,7 +411,7 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 				log.WithError(err).WithFields(log.Fields{
 					"flightNo":   mfs.FlightNo,
 					"flightDate": flightDate,
-					"std":        station.STD,
+					"std":        localSTD,
 				}).Warn("Failed to calculate operational timings")
 			} else if timings != nil {
 				opTimings = *timings
@@ -402,19 +423,19 @@ func (g *AFSGenerator) expandMFSToAFS(mfs models.MasterFlight, flightDate time.T
 			FlightNo:                 mfs.FlightNo,
 			FlightOwner:              mfs.FlightOwner,
 			OperationalSuffix:        mfs.OperationalSuffix,
-			ShowSuffix:               showSuffix, // ← ADD THIS
+			ShowSuffix:               showSuffix,
 			FlightDate:               flightDate,
 			LegSequence:              i + 1,
 			DepartureStation:         station.DepartureStation,
 			ArrivalStation:           station.ArrivalStation,
 			PassengerTerminalDep:     station.PassengerTerminalDep,
 			PassengerTerminalArr:     station.PassengerTerminalArr,
-			STD:                      station.STD,
-			STA:                      station.STA,
+			STD:                      localSTD,
+			STA:                      localSTA,
 			UTCLocalTimeVariationDep: station.UTCLocalTimeVariationDep,
 			UTCLocalTimeVariationArr: station.UTCLocalTimeVariationArr,
-			DayChangeDeparture:       station.CD,
-			DayChangeArrival:         station.CA,
+			DayChangeDeparture:       localCD,
+			DayChangeArrival:         localCA,
 			AircraftType:             station.IATASubTypeCode,
 			AircraftOwner:            station.AircraftOwner,
 			TailNo:                   station.TailNo,
